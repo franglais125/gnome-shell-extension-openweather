@@ -304,7 +304,8 @@ const OpenweatherMenuButton = new Lang.Class({
         }
         this._network_monitor_connection = this._network_monitor.connect('network-changed', Lang.bind(this, this._onNetworkStateChanged));
 
-        this._checkConnectionState();
+        this._networkTimeoutId = 0;
+        this._checkConnectionStateWithTimeout();
 
         this.menu.connect('open-state-changed', Lang.bind(this, this.recalcLayout));
         if (ExtensionUtils.versionCheck(['3.8'], Config.PACKAGE_VERSION)) {
@@ -351,6 +352,11 @@ const OpenweatherMenuButton = new Lang.Class({
         if (this._network_monitor_connection) {
             this._network_monitor.disconnect(this._network_monitor_connection);
             this._network_monitor_connection = undefined;
+        }
+
+        if (this._networkTimeoutId) {
+            GLib.source_remove(this._networkTimeoutId);
+            this._networkTimeoutId = 0;
         }
 
         if (this._settingsC) {
@@ -502,7 +508,31 @@ const OpenweatherMenuButton = new Lang.Class({
     },
 
     _onNetworkStateChanged: function() {
-        this._checkConnectionState();
+        this._checkConnectionStateWithTimeout();
+    },
+
+    _checkConnectionStateWithTimeout: function() {
+        if (this._networkTimeoutId) {
+            GLib.source_remove(this._networkTimeoutId);
+            this._networkTimeoutId = 0;
+        }
+
+        // Set to false to avoid a refresh, while we wait for a network check
+        this._connected = false;
+
+        // Timeout in milliseconds. Just over a second, as there seems to be a 1s
+        // timeout elsewhere in the Shell: 'network-changed' is suspiciously
+        // emitted at 1s intervals very often.
+        let timeout = 1250;
+        this._networkTimeoutId = GLib.timeout_add(
+            GLib.PRIORITY_DEFAULT,
+            timeout,
+            Lang.bind(this, function() {
+                this._checkConnectionState();
+                this._networkTimeoutId = 0;
+                return false;
+            })
+        );
     },
 
     _checkConnectionState: function() {
